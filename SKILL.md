@@ -1,0 +1,127 @@
+---
+name: daily-report
+description: 生成工作日报。当用户说"生成日报"、"写日报"、"今天的日报"、"帮我写工作日报"、"生成今日工作总结"时触发。扫描代码主目录下所有 git 仓库的当日提交记录，结合 Claude Code 会话摘要，生成结构化的中文 Markdown 日报文件。即使用户只是提到"日报"或"工作总结"，也应该使用此技能。
+---
+
+# 日报生成技能
+
+扫描代码主目录下所有 git 仓库的提交记录，结合 Claude Code 会话摘要，生成按项目分组的中文 Markdown 日报。
+
+## 执行步骤
+
+### 第一步：确定代码主目录
+
+读取技能配置：
+
+```bash
+python3 ~/.claude/skills/daily-report/scripts/config.py get[config.py](scripts/config.py)
+```
+
+如果配置中已有 `root` 字段，直接使用。如果没有，主动询问用户："请提供代码主目录路径（如 `D:/Develop`），我会扫描该目录下所有 git 仓库。" 拿到后保存：
+
+```bash
+python3 ~/.claude/skills/daily-report/scripts/config.py set --root <用户提供的路径>
+```
+
+如果用户在请求中已经提供了主目录路径，直接保存并使用，不要重复询问。
+
+### 第二步：收集数据
+
+运行采集脚本，一次性获取所有仓库的提交记录和会话摘要：
+
+```bash
+python3 ~/.claude/skills/daily-report/scripts/collect_data.py --date YYYY-MM-DD --root <主目录>
+```
+
+**关键参数说明：**
+
+- `--date`：目标日期（默认今天，由调用方指定）
+- `--root`：代码主目录
+- `--author`：作者过滤策略
+  - 默认 `auto`：使用 `git config --global user.name`，过滤掉 codeup 等机器人提交
+  - `all`：不过滤，保留所有作者
+  - 具体字符串：按该字符串过滤
+
+脚本输出 JSON 结构：
+
+```json
+{
+  "date": "2026-04-23",
+  "root": "D:/Develop",
+  "author_filter": "Ydg",
+  "repos_scanned": 63,
+  "projects": [
+    {
+      "path": "D:\\Develop\\Demo",
+      "name": "demo",
+      "commits": [{"hash": "5d831f9", "author": "Ydg", "subject": "..."}],
+      "sessions": [{"time": "10:39", "summary": "...", "is_summary": true, "messageCount": 14}]
+    }
+  ]
+}
+```
+
+只有 `commits` 或 `sessions` 非空的项目才会出现在 `projects` 数组中。
+
+### 第三步：生成日报
+
+按以下结构生成 Markdown：
+
+```markdown
+# 工作日报 - YYYY年MM月DD日
+
+> 扫描了 N 个 git 仓库，其中 M 个有当日记录。
+
+## {项目名 1}
+
+### 今日工作
+
+- **[模块/功能]**：从该项目的 commit 和会话中提炼出的工作描述
+- ...
+
+### 提交记录
+
+| 提交 | 说明 |
+|------|------|
+| `5d831f9` | feat(log): 新增日志模块 |
+| ... | ... |
+
+### 会话摘要
+
+- [10:39] 优化 AuthMiddleware 代码结构
+- ...
+
+## {项目名 2}
+
+...
+
+---
+
+*本日报由 daily-report 技能自动生成。*
+```
+
+**内容生成原则：**
+
+- **按项目分组**：每个有记录的项目独立成节，便于多仓库并行工作的展示
+- **提炼而非罗列**："今日工作"部分要从 commit message 和会话摘要中提炼有意义的工作条目，而不是机械复制
+- **conventional commits 归类**：如果该项目的 commit 使用了 feat/fix/refactor 等前缀，可在该项目下分子节（功能开发/问题修复/优化改进）
+- **提交记录截断**：单个项目超过 20 条提交时，只在表格中展示前 20 条，并在表格下注明"还有 N 条提交未列出"
+- **空数据**：如果所有仓库当天都没有记录，输出："今日（YYYY-MM-DD）扫描了 N 个仓库，未找到任何提交或会话记录。"
+
+### 第四步：保存日报
+
+读取配置中的 `report_dir`，如果未配置则默认保存到主目录下的 `daily-reports/`：
+
+```
+{主目录}/daily-reports/YYYY-MM-DD.md
+```
+
+如果目录不存在，先创建。保存后告知用户文件路径。
+
+## 注意事项
+
+- **日期处理**：`sessions-index.json` 的时间戳是 UTC，脚本已自动转换为 UTC+8 比对
+- **性能**：扫描 60+ 仓库通常在 10 秒内完成，但首次运行可能稍慢
+- **路径分隔符**：Windows 路径在 JSON 中会显示为 `\\`，写入日报时保持原样或转换为 `/` 都可以
+- **指定日期**：用户说"昨天的日报"、"上周三的日报"等，转换为具体日期再传入脚本
+- **commit hash**：脚本输出的 hash 已截断为 7 位
