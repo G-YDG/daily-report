@@ -102,7 +102,7 @@ python3 ~/.claude/skills/daily-report/scripts/collect_data.py --date YYYY-MM-DD 
 
 **内容生成原则：**
 
-- **按项目分组**：每个有记录的项目独立成节，便于多仓库并行工作的展示
+- **按项目分组**：每个有记录的项目独立成节，便于多仓库并行工作的展示，如果 README.md 有项目名称，优先使用该名称
 - **提炼而非罗列**："今日工作"部分要从 commit message 和会话摘要中提炼有意义的工作条目，而不是机械复制
 - **conventional commits 归类**：如果该项目的 commit 使用了 feat/fix/refactor 等前缀，可在该项目下分子节（功能开发/问题修复/优化改进）
 - **提交记录截断**：单个项目超过 20 条提交时，只在表格中展示前 20 条，并在表格下注明"还有 N 条提交未列出"
