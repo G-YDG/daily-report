@@ -76,7 +76,7 @@ python3 ~/.claude/skills/daily-report/scripts/collect_data.py --date YYYY-MM-DD 
 
 ### 今日工作
 
-- **[模块/功能]**：从该项目的 commit 和会话中提炼出的工作描述
+- [模块/功能]：从该项目的 commit 和会话中提炼出的工作内容摘要
 - ...
 
 ### 提交记录
