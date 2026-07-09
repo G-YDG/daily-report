@@ -64,7 +64,6 @@ def get_git_user_name() -> str | None:
         pass
     return None
 
-
 def collect_git_log(repo: str, date_str: str, author: str | None = None) -> list[dict]:
     """收集仓库当天的提交记录（不含 merge 提交）。可选按作者过滤。"""
     start = f"{date_str} 00:00:00"
@@ -95,7 +94,6 @@ def collect_git_log(repo: str, date_str: str, author: str | None = None) -> list
         return commits
     except (subprocess.TimeoutExpired, OSError):
         return []
-
 
 def main():
     parser = argparse.ArgumentParser(description='收集多仓库 git log')
