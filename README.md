@@ -1,12 +1,11 @@
 # daily-report
 
-扫描代码主目录下所有 git 仓库的提交记录，结合 Claude Code 会话摘要，生成结构化的中文 Markdown 日报。
+扫描代码主目录下所有 git 仓库的提交记录，生成结构化的中文 Markdown 日报。
 
 ## 功能特性
 
 - 📦 自动扫描指定目录下所有 git 仓库
 - 📊 收集指定日期的 commit 记录（支持作者过滤）
-- 💬 关联 Claude Code 会话摘要
 - 📝 生成按项目分组的 Markdown 日报
 
 ## 项目结构
@@ -57,6 +56,7 @@ python3 scripts/collect_data.py \
 | `--root` | 代码主目录 | 必填 |
 | `--max-depth` | 最大扫描深度 | 5 |
 | `--author` | 作者过滤：`auto`(git config) / `all`(不过滤) / 具体字符串 | auto |
+| `--jobs` | 并行 git log 的并发数 | 16 |
 
 ## 输出示例
 
@@ -70,8 +70,7 @@ python3 scripts/collect_data.py \
     {
       "path": "D:\\Develop\\Demo",
       "name": "demo",
-      "commits": [{"hash": "5d831f9", "author": "Ydg", "subject": "feat: add new feature"}],
-      "sessions": [{"time": "10:39", "summary": "优化代码结构", "is_summary": true}]
+      "commits": [{"hash": "5d831f9", "author": "Ydg", "subject": "feat: add new feature"}]
     }
   ]
 }
@@ -79,9 +78,8 @@ python3 scripts/collect_data.py \
 
 ## 技术细节
 
-- **时间处理**：会话时间戳自动从 UTC 转换为 UTC+8
 - **跳过目录**：自动跳过 `node_modules`、`.git`、`dist` 等无关目录
-- **性能优化**：扫描 60+ 仓库通常在 10 秒内完成
+- **并行扫描**：默认 16 路并行 git log，60+ 仓库通常在 2 秒内完成
 
 ## 依赖
 

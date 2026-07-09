@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-收集指定主目录下所有 git 仓库的提交记录和 Claude Code 会话摘要。
+收集指定主目录下所有 git 仓库的提交记录。
 用法: python3 collect_data.py --date YYYY-MM-DD --root D:/Develop
 """
 import argparse
+import functools
 import json
 import os
 import subprocess
-from datetime import datetime, timezone, timedelta
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
-
-UTC_PLUS_8 = timezone(timedelta(hours=8))
 
 # 扫描时跳过的目录
 SKIP_DIRS = {
@@ -19,6 +19,9 @@ SKIP_DIRS = {
     '__pycache__', '.venv', 'venv', 'env',
     '.idea', '.vscode', '.cache',
 }
+
+# 并行 git log 的默认并发数
+DEFAULT_JOBS = 16
 
 
 def find_git_repos(root: str, max_depth: int = 5) -> list[str]:
@@ -90,86 +93,30 @@ def collect_git_log(repo: str, date_str: str, author: str | None = None) -> list
                     'subject': subject,
                 })
         return commits
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except (subprocess.TimeoutExpired, OSError):
         return []
-
-
-def cwd_to_project_dir_name(cwd: str) -> str:
-    """将路径转换为 ~/.claude/projects/ 下的目录名格式。"""
-    normalized = cwd.replace('/', '\\').rstrip('\\')
-    return normalized.replace(':', '-').replace('\\', '-')
-
-
-def parse_utc_timestamp(ts: str):
-    if not ts:
-        return None
-    try:
-        return datetime.fromisoformat(ts.replace('Z', '+00:00'))
-    except ValueError:
-        return None
-
-
-def collect_sessions_for_repo(repo: str, target_date) -> list[dict]:
-    """收集指定仓库对应的会话记录。"""
-    home = os.path.expanduser('~')
-    projects_base = os.path.join(home, '.claude', 'projects')
-
-    expected = cwd_to_project_dir_name(repo)
-    project_dir = os.path.join(projects_base, expected)
-
-    if not os.path.isdir(project_dir):
-        return []
-
-    idx_path = os.path.join(project_dir, 'sessions-index.json')
-    if not os.path.exists(idx_path):
-        return []
-
-    with open(idx_path, 'rb') as f:
-        data = json.loads(f.read().decode('utf-8'))
-
-    entries = data.get('entries', [])
-    results = []
-
-    for entry in entries:
-        modified_ts = parse_utc_timestamp(entry.get('modified', ''))
-        created_ts = parse_utc_timestamp(entry.get('created', ''))
-        ts = modified_ts or created_ts
-        if not ts:
-            continue
-
-        local_dt = ts.astimezone(UTC_PLUS_8)
-        if local_dt.date() != target_date:
-            continue
-
-        summary = entry.get('summary') or ''
-        first_prompt = entry.get('firstPrompt') or ''
-        display = summary.strip() if summary.strip() else first_prompt[:60].strip()
-        if not display:
-            continue
-
-        results.append({
-            'sessionId': entry.get('sessionId', ''),
-            'summary': display,
-            'is_summary': bool(summary.strip()),
-            'time': local_dt.strftime('%H:%M'),
-            'messageCount': entry.get('messageCount', 0),
-        })
-
-    results.sort(key=lambda x: x['time'])
-    return results
 
 
 def main():
-    parser = argparse.ArgumentParser(description='收集多仓库 git log 和 Claude Code 会话摘要')
+    parser = argparse.ArgumentParser(description='收集多仓库 git log')
     parser.add_argument('--date', required=True, help='日期，格式 YYYY-MM-DD')
     parser.add_argument('--root', required=True, help='代码主目录，如 D:/Develop')
     parser.add_argument('--max-depth', type=int, default=5, help='最大扫描深度（默认 5）')
     parser.add_argument('--author', default=None,
                         help='按作者过滤提交。传 "auto" 使用 git config user.name；传 "all" 不过滤；'
                              '传具体字符串则按该字符串过滤。默认 auto')
+    parser.add_argument('--jobs', type=int, default=DEFAULT_JOBS,
+                        help='并行 git log 的并发数（默认 16）')
     args = parser.parse_args()
 
-    target_date = datetime.strptime(args.date, '%Y-%m-%d').date()
+    if args.jobs < 1:
+        args.jobs = DEFAULT_JOBS
+
+    try:
+        datetime.strptime(args.date, '%Y-%m-%d')
+    except ValueError:
+        print(json.dumps({'error': f'日期格式错误: {args.date}，应为 YYYY-MM-DD'}, ensure_ascii=False))
+        return
 
     if not os.path.isdir(args.root):
         print(json.dumps({'error': f'代码主目录不存在: {args.root}'}, ensure_ascii=False))
@@ -192,15 +139,18 @@ def main():
         'projects': [],
     }
 
-    for repo in repos:
-        commits = collect_git_log(repo, args.date, author_filter)
-        sessions = collect_sessions_for_repo(repo, target_date)
-        if commits or sessions:
+    with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+        all_commits = list(executor.map(
+            functools.partial(collect_git_log, date_str=args.date, author=author_filter),
+            repos,
+        ))
+
+    for repo, commits in zip(repos, all_commits):
+        if commits:
             result['projects'].append({
                 'path': repo,
                 'name': os.path.basename(repo),
                 'commits': commits,
-                'sessions': sessions,
             })
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
